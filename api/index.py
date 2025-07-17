@@ -7,9 +7,9 @@ import math
 
 # --- Configuration ---
 EMAIL_ADDRESS = "TFA1974 (at) AOL (dotcom)"
-IMAGE_WIDTH = 400
-IMAGE_HEIGHT = 100
-FONT_SIZE = 24
+IMAGE_WIDTH = 300
+IMAGE_HEIGHT = 50
+FONT_SIZE = 20
 # --- End Configuration ---
 
 class handler(BaseHTTPRequestHandler):

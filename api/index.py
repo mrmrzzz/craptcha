@@ -66,7 +66,7 @@ class handler(BaseHTTPRequestHandler):
             img.paste(rotated_char, (int(x_start), int(char_y_pos - FONT_SIZE/2)), rotated_char)
             
             # Advance x position for next character
-            char_width, _ = draw.textsize(char, font=font)
+            char_width, _ = draw.textlength(char, font=font)
             x_start += char_width + random.uniform(-2, 2) # Jitter spacing
 
         # 5. Draw random bezier curves over the text

@@ -3,18 +3,18 @@ from io import BytesIO
 from urllib.parse import urlparse, parse_qs
 from PIL import Image, ImageDraw, ImageFont
 from perlin_noise import PerlinNoise
+import numpy as np
 import random
 import math
 import os
 
+# --- Configuration ---
 DEFAULT_TEXT = "CAPTCHA"
 MAX_TEXT_LENGTH = 50
-
 MIN_IMAGE_HEIGHT = 100
 FONT_SIZE_RANGE = (38, 50)
 HORIZONTAL_PADDING = 25
 VERTICAL_PADDING = 20
-
 DESIRED_AMPLITUDE_MAX = 12.0
 DESIRED_SPACING_MIN = -10.0
 DESIRED_SPACING_MAX = 4.0
@@ -22,7 +22,7 @@ DESIRED_ROTATION_MIN = -20
 DESIRED_ROTATION_MAX = 20
 BULGE_FACTOR = 0.3
 INVERTED_BLOCK_CHANCE = 0.25
-NOISE_LINE_COUNT = (10, 15)
+NOISE_LINE_COUNT = (8, 12)
 SALT_PEPPER_AMOUNT = 0.05
 
 class handler(BaseHTTPRequestHandler):
@@ -31,7 +31,6 @@ class handler(BaseHTTPRequestHandler):
         width, height = image.size
         center_x, center_y = float(width / 2), float(height / 2)
         max_radius = float(min(center_x, center_y))
-        
         mesh_data = []
         grid_size = 10
 
@@ -57,8 +56,40 @@ class handler(BaseHTTPRequestHandler):
                 for x,y in [(x0,y0), (x1,y1), (x2,y2), (x3,y3)]:
                      source_quad.extend(get_source_coords(x,y))
                 mesh_data.append((target_box, tuple(source_quad)))
-
         return image.transform(image.size, Image.MESH, mesh_data, Image.BICUBIC)
+
+    def generate_perlin_background(self, width, height):
+        noise = PerlinNoise(octaves=random.uniform(4, 8), seed=random.randint(1, 100))
+        x_grid, y_grid = np.meshgrid(np.linspace(0, 1, width), np.linspace(0, 1, height))
+        
+        # Vectorize the noise function for performance
+        vectorized_noise = np.vectorize(noise)
+        
+        # Generate noise field in one operation
+        noise_field = vectorized_noise(x_grid, y_grid).T
+        
+        # Normalize to 0-255 range
+        normalized_field = (noise_field + 0.5) * 255
+        
+        # Create a color image from the noise field
+        color_image_array = np.zeros((height, width, 3), dtype=np.uint8)
+        color_image_array[:, :, 0] = normalized_field
+        color_image_array[:, :, 1] = normalized_field
+        color_image_array[:, :, 2] = normalized_field * 0.95 # Slight blue tint
+        
+        return Image.fromarray(color_image_array)
+
+    def add_salt_pepper_noise(self, image, amount):
+        img_array = np.array(image)
+        
+        # Generate a mask of random pixels to change
+        mask = np.random.choice([0, 1, 2], size=img_array.shape[:2], p=[amount/2, amount/2, 1-amount])
+        
+        # Apply black and white pixels using the mask
+        img_array[mask == 0] = [0, 0, 0]    # Black
+        img_array[mask == 1] = [255, 255, 255] # White
+        
+        return Image.fromarray(img_array)
 
     def do_GET(self):
         parsed_path = urlparse(self.path)
@@ -76,7 +107,6 @@ class handler(BaseHTTPRequestHandler):
         char_configs = []
         actual_width = 0
         temp_draw = ImageDraw.Draw(Image.new('RGB',(1,1)))
-        
         for char in text_to_render:
             font_path = random.choice(available_font_paths)
             font_size = random.randint(FONT_SIZE_RANGE[0], FONT_SIZE_RANGE[1])
@@ -89,13 +119,7 @@ class handler(BaseHTTPRequestHandler):
         IMAGE_WIDTH = int(actual_width + HORIZONTAL_PADDING * 2)
         IMAGE_HEIGHT = int(MIN_IMAGE_HEIGHT + VERTICAL_PADDING * 2)
 
-        noise = PerlinNoise(octaves=random.uniform(4, 8), seed=random.randint(1, 100))
-        pic = [[noise([i/IMAGE_WIDTH, j/IMAGE_HEIGHT]) for j in range(IMAGE_HEIGHT)] for i in range(IMAGE_WIDTH)]
-        final_img = Image.new('RGB', (IMAGE_WIDTH, IMAGE_HEIGHT))
-        for i in range(IMAGE_WIDTH):
-            for j in range(IMAGE_HEIGHT):
-                color = int((pic[i][j] + 0.5) * 200) + 55
-                final_img.putpixel((i, j), (color, color, int(color*0.95)))
+        final_img = self.generate_perlin_background(IMAGE_WIDTH, IMAGE_HEIGHT)
 
         geo_layer = Image.new('RGBA', final_img.size, (255, 255, 255, 0))
         geo_draw = ImageDraw.Draw(geo_layer)
@@ -114,7 +138,6 @@ class handler(BaseHTTPRequestHandler):
         for config in char_configs:
             y_offset = random.uniform(-DESIRED_AMPLITUDE_MAX, DESIRED_AMPLITUDE_MAX)
             char_y_pos = y_center + y_offset
-            
             font = config['font']
             font_size = font.size
             char_img = Image.new('RGBA', (font_size * 2, font_size * 2))
@@ -133,7 +156,6 @@ class handler(BaseHTTPRequestHandler):
             char_draw.text((font_size/2, font_size/2), config['char'], font=font, fill=text_color)
             rotation = random.uniform(DESIRED_ROTATION_MIN, DESIRED_ROTATION_MAX)
             rotated_char = char_img.rotate(rotation, expand=True, resample=Image.BICUBIC)
-            
             text_layer.paste(rotated_char, (int(current_x), int(char_y_pos - rotated_char.height / 2)), rotated_char)
             current_x += config['width'] + config['spacing']
 
@@ -144,11 +166,8 @@ class handler(BaseHTTPRequestHandler):
         for _ in range(random.randint(NOISE_LINE_COUNT[0], NOISE_LINE_COUNT[1])):
             final_draw.line([(random.randint(0, IMAGE_WIDTH), random.randint(0, IMAGE_HEIGHT)) for _ in range(random.randint(2,4))], fill=random.choice(dark_palette), width=random.randint(2,3))
         
-        pixels = final_img.load()
-        for _ in range(int(IMAGE_WIDTH * IMAGE_HEIGHT * SALT_PEPPER_AMOUNT)):
-            x, y = random.randint(0, IMAGE_WIDTH-1), random.randint(0, IMAGE_HEIGHT-1)
-            pixels[x, y] = random.choice([(0,0,0), (255,255,255)])
-
+        final_img = self.add_salt_pepper_noise(final_img, SALT_PEPPER_AMOUNT)
+        
         buffer = BytesIO()
         final_img.save(buffer, format="PNG")
         

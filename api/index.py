@@ -4,6 +4,7 @@ from urllib.parse import urlparse, parse_qs
 from PIL import Image, ImageDraw, ImageFont
 import random
 import math
+import os
 
 DEFAULT_TEXT = "No Text Provided"
 MAX_TEXT_LENGTH = 50
@@ -24,11 +25,8 @@ BULGE_FACTOR = 0.5
 class handler(BaseHTTPRequestHandler):
 
     def font_exists(self, font_name):
-        try:
-            ImageFont.truetype(font_name, 10)
-            return True
-        except IOError:
-            return False
+        script_dir = os.path.dirname(__file__)
+        return os.path.exists(os.path.join(script_dir, font_name))
 
     def calculate_max_width(self, draw, text, font_list):
         max_font_width = 0
@@ -66,7 +64,6 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed_path = urlparse(self.path)
         query_params = parse_qs(parsed_path.query)
-        
         text_to_render = query_params.get('text', [DEFAULT_TEXT])[0]
         
         if len(text_to_render) > MAX_TEXT_LENGTH:
@@ -76,19 +73,21 @@ class handler(BaseHTTPRequestHandler):
         final_img = Image.new('RGB', (IMAGE_WIDTH, IMAGE_HEIGHT), color=bg_color)
         text_layer = Image.new('RGBA', (IMAGE_WIDTH, IMAGE_HEIGHT), (0,0,0,0))
         draw = ImageDraw.Draw(text_layer)
-
+        
+        script_dir = os.path.dirname(__file__)
         font_names = [
-            "DejaVuSans-Bold.ttf", "DejaVuSerif-Bold.ttf", 
-            "LiberationSans-Bold.ttf", "LiberationSerif-Bold.ttf"
+            os.path.join("fonts", "DejaVuSans-Bold.ttf"),
+            os.path.join("fonts", "DejaVuSerif-Bold.ttf")
         ]
-        available_font_paths = [name for name in font_names if self.font_exists(name)]
+        
+        available_font_paths = [os.path.join(script_dir, name) for name in font_names if self.font_exists(os.path.join(script_dir, name))]
         if not available_font_paths:
-            raise IOError("No suitable bold fonts found.")
+            raise IOError("Fonts not found in deployment package.")
 
         current_font_size = INITIAL_FONT_SIZE
         while current_font_size > 10:
-            font_list = [ImageFont.truetype(path, current_font_size) for path in available_font_paths]
-            max_width = self.calculate_max_width(ImageDraw.Draw(Image.new('RGB',(1,1))), text_to_render, font_list)
+            font_list_check = [ImageFont.truetype(path, current_font_size) for path in available_font_paths]
+            max_width = self.calculate_max_width(ImageDraw.Draw(Image.new('RGB',(1,1))), text_to_render, font_list_check)
             if max_width < (IMAGE_WIDTH - HORIZONTAL_PADDING * 2):
                 break
             current_font_size -= 1

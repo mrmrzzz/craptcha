@@ -42,7 +42,7 @@ class handler(BaseHTTPRequestHandler):
             distance = math.sqrt(dx * dx + dy * dy)
             
             if distance == 0 or max_radius == 0:
-                return x, y
+                return (x, y)
             
             r = distance / max_radius
             new_r = r - (r * factor * (distance - max_radius) / max_radius)
@@ -50,14 +50,16 @@ class handler(BaseHTTPRequestHandler):
             
             src_x = center_x + new_r * max_radius * math.cos(theta)
             src_y = center_y + new_r * max_radius * math.sin(theta)
-            return src_x, src_y
+            return (src_x, src_y)
 
-        corners = [(0, 0), (width, 0), (width, height), (0, height)]
+        # CORRECTED: Build a list of (x,y) tuples, not a flat list
         source_quad = []
-        for x, y in corners:
-            source_quad.extend(get_source_coords(x, y))
+        for x, y in [(0, 0), (width, 0), (width, height), (0, height)]:
+            source_quad.append(get_source_coords(x, y))
 
         target_box = (0, 0, width, height)
+        # CORRECTED: Ensure the final structure is a list containing one tuple
+        # with the target box and a tuple of the source coordinates.
         mesh_data = [(target_box, tuple(source_quad))]
         
         return image.transform(image.size, Image.MESH, mesh_data, Image.BICUBIC)

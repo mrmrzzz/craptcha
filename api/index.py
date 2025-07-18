@@ -33,29 +33,34 @@ class handler(BaseHTTPRequestHandler):
 
     def apply_bulge_distortion(self, image, factor):
         width, height = image.size
-        distorted_image = Image.new('RGBA', image.size)
         center_x, center_y = width / 2.0, height / 2.0
         max_radius = min(center_x, center_y)
 
-        for y in range(height):
-            for x in range(width):
-                dx = x - center_x
-                dy = y - center_y
-                distance = math.sqrt(dx * dx + dy * dy)
+        def get_source_coords(x, y):
+            dx = x - center_x
+            dy = y - center_y
+            distance = math.sqrt(dx * dx + dy * dy)
+            
+            if distance == 0 or max_radius == 0:
+                return x, y
+            
+            r = distance / max_radius
+            new_r = r - (r * factor * (distance - max_radius) / max_radius)
+            theta = math.atan2(dy, dx)
+            
+            src_x = center_x + new_r * max_radius * math.cos(theta)
+            src_y = center_y + new_r * max_radius * math.sin(theta)
+            return src_x, src_y
 
-                if distance <= max_radius:
-                    r = distance / max_radius
-                    new_r = r - (r * factor * (distance - max_radius) / max_radius)
-                    theta = math.atan2(dy, dx)
-                    src_x = int(center_x + new_r * max_radius * math.cos(theta))
-                    src_y = int(center_y + new_r * max_radius * math.sin(theta))
-                    if 0 <= src_x < width and 0 <= src_y < height:
-                        pixel = image.getpixel((src_x, src_y))
-                        distorted_image.putpixel((x, y), pixel)
-                else:
-                    pixel = image.getpixel((x, y))
-                    distorted_image.putpixel((x, y), pixel)
-        return distorted_image
+        corners = [(0, 0), (width, 0), (width, height), (0, height)]
+        source_quad = []
+        for x, y in corners:
+            source_quad.extend(get_source_coords(x, y))
+
+        target_box = (0, 0, width, height)
+        mesh_data = [(target_box, tuple(source_quad))]
+        
+        return image.transform(image.size, Image.MESH, mesh_data, Image.BICUBIC)
 
     def do_GET(self):
         parsed_path = urlparse(self.path)
@@ -83,7 +88,7 @@ class handler(BaseHTTPRequestHandler):
                 available_font_paths.append(path)
         
         if not available_font_paths:
-            raise IOError("No bundled fonts could be found. Check 'vercel.json' includeFiles directive.")
+            raise IOError("No bundled fonts found. Check 'vercel.json' includeFiles.")
 
         current_font_size = INITIAL_FONT_SIZE
         while current_font_size > 10:

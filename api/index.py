@@ -7,7 +7,7 @@ import math
 import os
 
 # --- Configuration ---
-DEFAULT_TEXT = "CAPTCHA"
+DEFAULT_TEXT = "CRAPTCHA"
 MAX_TEXT_LENGTH = 50
 IMAGE_WIDTH = 550
 IMAGE_HEIGHT = 100

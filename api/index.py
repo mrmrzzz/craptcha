@@ -20,6 +20,7 @@ DESIRED_SPACING_MIN = -5.0
 DESIRED_SPACING_MAX = 5.0
 DESIRED_ROTATION_MIN = -35
 DESIRED_ROTATION_MAX = 35
+BULGE_FACTOR = 0.5
 
 class handler(BaseHTTPRequestHandler):
 
@@ -29,6 +30,53 @@ class handler(BaseHTTPRequestHandler):
             char_width = max(draw.textlength(char, font=font) for font in font_list)
             max_font_width += char_width + DESIRED_SPACING_MAX
         return max_font_width
+
+    def apply_bulge_distortion(self, image, factor):
+        width, height = image.size
+        center_x, center_y = float(width / 2), float(height / 2)
+        max_radius = float(min(center_x, center_y))
+
+        grid_size = 16 
+        mesh_data = []
+
+        for j in range(grid_size):
+            for i in range(grid_size):
+                x0 = float(i * width) / grid_size
+                y0 = float(j * height) / grid_size
+                x1 = float((i + 1) * width) / grid_size
+                y1 = float(j * height) / grid_size
+                x2 = float((i + 1) * width) / grid_size
+                y2 = float((j + 1) * height) / grid_size
+                x3 = float(i * width) / grid_size
+                y3 = float((j + 1) * height) / grid_size
+                target_box = (x0, y0, x2, y2)
+
+                def get_source_coords(x, y):
+                    dx, dy = x - center_x, y - center_y
+                    distance = math.sqrt(dx**2 + dy**2)
+                    
+                    if max_radius == 0: return (x, y)
+                    
+                    r = distance / max_radius
+                    # A stable pincushion (bulge) distortion formula
+                    new_r = r + (r**2 - r) * factor
+                    
+                    if distance == 0:
+                        scale = 1.0
+                    else:
+                        scale = (new_r * max_radius) / distance
+
+                    src_x = center_x + dx * scale
+                    src_y = center_y + dy * scale
+                    return (src_x, src_y)
+
+                source_quad = []
+                for x,y in [(x0,y0), (x1,y1), (x2,y2), (x3,y3)]:
+                     source_quad.extend(get_source_coords(x,y))
+                
+                mesh_data.append((target_box, tuple(source_quad)))
+
+        return image.transform(image.size, Image.MESH, mesh_data, Image.BICUBIC)
 
     def do_GET(self):
         parsed_path = urlparse(self.path)
@@ -40,7 +88,8 @@ class handler(BaseHTTPRequestHandler):
 
         bg_color = (random.randint(220, 255), random.randint(220, 255), random.randint(220, 255))
         final_img = Image.new('RGB', (IMAGE_WIDTH, IMAGE_HEIGHT), color=bg_color)
-        draw = ImageDraw.Draw(final_img)
+        text_layer = Image.new('RGBA', (IMAGE_WIDTH, IMAGE_HEIGHT), (0,0,0,0))
+        draw = ImageDraw.Draw(text_layer)
         
         script_dir = os.path.dirname(__file__)
         font_names = [
@@ -81,7 +130,6 @@ class handler(BaseHTTPRequestHandler):
         y_center = IMAGE_HEIGHT / 2
         current_x = x_start
 
-        # Simplified and stable rendering loop
         for config in char_configs:
             y_offset = random.uniform(-DESIRED_AMPLITUDE_MAX, DESIRED_AMPLITUDE_MAX)
             char_y_pos = y_center + y_offset
@@ -94,10 +142,13 @@ class handler(BaseHTTPRequestHandler):
             rotation = random.uniform(DESIRED_ROTATION_MIN, DESIRED_ROTATION_MAX)
             rotated_char = char_img.rotate(rotation, expand=True, resample=Image.BICUBIC)
             
-            final_img.paste(rotated_char, (int(current_x), int(char_y_pos - rotated_char.height / 2)), rotated_char)
+            text_layer.paste(rotated_char, (int(current_x), int(char_y_pos - rotated_char.height / 2)), rotated_char)
             current_x += config['width'] + config['spacing']
 
+        distorted_text_layer = self.apply_bulge_distortion(text_layer, BULGE_FACTOR)
+        final_img.paste(distorted_text_layer, (0,0), distorted_text_layer)
         final_draw = ImageDraw.Draw(final_img)
+        
         for _ in range(random.randint(5, 7)):
             final_draw.line([(random.randint(0, IMAGE_WIDTH), random.randint(0, IMAGE_HEIGHT)) for _ in range(4)], 
                       fill=(random.randint(70, 170), random.randint(70, 170), random.randint(70, 170)), width=2)

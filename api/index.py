@@ -33,35 +33,49 @@ class handler(BaseHTTPRequestHandler):
 
     def apply_bulge_distortion(self, image, factor):
         width, height = image.size
-        center_x, center_y = width / 2.0, height / 2.0
-        max_radius = min(center_x, center_y)
+        center_x, center_y = float(width / 2), float(height / 2)
+        max_radius = float(min(center_x, center_y))
 
-        def get_source_coords(x, y):
-            dx = x - center_x
-            dy = y - center_y
-            distance = math.sqrt(dx * dx + dy * dy)
-            
-            if distance == 0 or max_radius == 0:
-                return (x, y)
-            
-            r = distance / max_radius
-            new_r = r - (r * factor * (distance - max_radius) / max_radius)
-            theta = math.atan2(dy, dx)
-            
-            src_x = center_x + new_r * max_radius * math.cos(theta)
-            src_y = center_y + new_r * max_radius * math.sin(theta)
-            return (src_x, src_y)
+        grid_size = 16 
+        mesh_data = []
 
-        # CORRECTED: Build a list of (x,y) tuples, not a flat list
-        source_quad = []
-        for x, y in [(0, 0), (width, 0), (width, height), (0, height)]:
-            source_quad.append(get_source_coords(x, y))
+        for j in range(grid_size):
+            for i in range(grid_size):
+                x0 = float(i * width) / grid_size
+                y0 = float(j * height) / grid_size
+                x1 = float((i + 1) * width) / grid_size
+                y1 = float(j * height) / grid_size
+                x2 = float((i + 1) * width) / grid_size
+                y2 = float((j + 1) * height) / grid_size
+                x3 = float(i * width) / grid_size
+                y3 = float((j + 1) * height) / grid_size
+                target_box = (x0, y0, x2, y2)
 
-        target_box = (0, 0, width, height)
-        # CORRECTED: Ensure the final structure is a list containing one tuple
-        # with the target box and a tuple of the source coordinates.
-        mesh_data = [(target_box, tuple(source_quad))]
-        
+                def get_source_coords(x, y):
+                    dx, dy = x - center_x, y - center_y
+                    distance = math.sqrt(dx**2 + dy**2)
+                    
+                    if max_radius == 0: return (x, y)
+                    
+                    r = distance / max_radius
+                    # A stable pincushion (bulge) distortion formula
+                    new_r = r + (r**2 - r) * factor
+                    
+                    if distance == 0:
+                        scale = 1.0
+                    else:
+                        scale = (new_r * max_radius) / distance
+
+                    src_x = center_x + dx * scale
+                    src_y = center_y + dy * scale
+                    return (src_x, src_y)
+
+                source_quad = []
+                for x,y in [(x0,y0), (x1,y1), (x2,y2), (x3,y3)]:
+                     source_quad.extend(get_source_coords(x,y))
+                
+                mesh_data.append((target_box, tuple(source_quad)))
+
         return image.transform(image.size, Image.MESH, mesh_data, Image.BICUBIC)
 
     def do_GET(self):

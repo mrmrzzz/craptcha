@@ -24,10 +24,6 @@ BULGE_FACTOR = 0.5
 
 class handler(BaseHTTPRequestHandler):
 
-    def font_exists(self, font_name):
-        script_dir = os.path.dirname(__file__)
-        return os.path.exists(os.path.join(script_dir, font_name))
-
     def calculate_max_width(self, draw, text, font_list):
         max_font_width = 0
         for char in text:
@@ -76,13 +72,18 @@ class handler(BaseHTTPRequestHandler):
         
         script_dir = os.path.dirname(__file__)
         font_names = [
-            os.path.join("fonts", "DejaVuSans-Bold.ttf"),
-            os.path.join("fonts", "DejaVuSerif-Bold.ttf")
+            "fonts/DejaVuSans-Bold.ttf", "fonts/DejaVuSerif-Bold.ttf",
+            "fonts/LiberationSans-Bold.ttf", "fonts/LiberationSerif-Bold.ttf"
         ]
         
-        available_font_paths = [os.path.join(script_dir, name) for name in font_names if self.font_exists(os.path.join(script_dir, name))]
+        available_font_paths = []
+        for name in font_names:
+            path = os.path.join(script_dir, name)
+            if os.path.exists(path):
+                available_font_paths.append(path)
+        
         if not available_font_paths:
-            raise IOError("Fonts not found in deployment package.")
+            raise IOError("No bundled fonts could be found. Check 'vercel.json' includeFiles directive.")
 
         current_font_size = INITIAL_FONT_SIZE
         while current_font_size > 10:
